@@ -20,7 +20,7 @@
     "@astrojs/sitemap": "^3.7.2",
     "@astrojs/starlight": "^0.41.10",
     "@vercel/analytics": "2.0.1",
-    "astro": "^7.1.6",
+    "astro": "^7.4.2",
     "sharp": "^0.35.5"
   },
   "devDependencies": {
