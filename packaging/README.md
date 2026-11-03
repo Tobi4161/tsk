@@ -162,6 +162,21 @@ python3 scripts/release.py assemble <tag> <output-directory>
   only run the macOS ARM archive binary directly. An agent verifies the checksums, the
   archive binary, the upgrade path, and setup, and says which of these it did not run.
 
+### Release from a fork
+
+A binary follows one GitHub repository for the release check and `tsk update`. It is fixed
+at build time by `TSK_RELEASE_REPO=owner/name` (`RELEASE_REPO` in `src/update.rs`), default
+`smarzban/tsk`. A malformed value fails the build.
+
+- The release workflow sets `TSK_RELEASE_REPO` to `github.repository`, so `Prepare release`
+  run on a fork builds binaries and a formula that point at the fork.
+- For the default repository `tsk update` fetches the installer from gettsk.sh. For any
+  other it fetches `install.sh` or `install.ps1` from
+  `https://github.com/<repo>/releases/latest/download/`, then passes `TSK_RELEASE_REPO` so
+  the installer downloads archives from the same repository.
+- A fork needs at least one published (non-draft) release before its builds can update.
+- A local build that should update from the fork: `TSK_RELEASE_REPO=owner/name cargo build --release`.
+
 ## Installer contracts
 
 What the installers promise; `tsk update` and support answers rely on it. The user-facing
@@ -172,7 +187,7 @@ description lives in [install.md](https://gettsk.sh/docs/install/).
 | Needs | `curl`, `tar`, `sha256sum` or `shasum`, and standard POSIX tools | Windows PowerShell 5.1 or PowerShell 7, 64-bit |
 | Platform | From `uname`; an Intel or Rosetta shell selects Intel | Native architecture, even from an emulated x64 PowerShell |
 | Default directory | `~/.local/bin` | `%LOCALAPPDATA%\Programs\tsk\bin` |
-| Options | `TSK_INSTALL_DIR` (absolute), `TSK_VERSION=vX.Y.Z` (a public release tag) | The same, plus `-Help` (offline syntax) and `-NoPathUpdate` |
+| Options | `TSK_INSTALL_DIR` (absolute), `TSK_VERSION=vX.Y.Z` (a public release tag), `TSK_RELEASE_REPO=owner/name` (default `smarzban/tsk`) | The same, plus `-Help` (offline syntax) and `-NoPathUpdate` |
 | Download | Archive verified against `SHA256SUMS` before staging | Redirects, time, downloaded and expanded bytes bounded; ZIP verified against `SHA256SUMS` before extraction |
 | Replace | Atomic | Same-volume atomic |
 | Refuses | A symlink or directory at the destination; a path containing `:` or a newline | A reparse point or directory at the destination; a path containing `;`, CR, or a newline |
@@ -182,8 +197,8 @@ description lives in [install.md](https://gettsk.sh/docs/install/).
 | Never | Undoes the binary when setup fails; touches task data | The same |
 
 `tsk update` downloads the platform installer and runs it with `TSK_UPDATE=1`,
-`TSK_CURRENT_VERSION`, and `TSK_INSTALL_DIR` set to the running binary's directory. A
-Homebrew install gets `brew upgrade` guidance instead.
+`TSK_CURRENT_VERSION`, `TSK_RELEASE_REPO`, and `TSK_INSTALL_DIR` set to the running binary's
+directory. A Homebrew install gets `brew upgrade` guidance instead.
 
 - In update mode the installer refreshes integrations: a Herdr registration that binds
   both plugin commands is refreshed without asking, even under `CI`; otherwise the usual

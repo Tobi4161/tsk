@@ -10,6 +10,8 @@ import unittest
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[2]
+# The release workflow sets TSK_RELEASE_REPO to the repository it runs in.
+EXPECTED_REPO = os.environ.get("TSK_RELEASE_REPO") or "smarzban/tsk"
 spec = importlib.util.spec_from_file_location("release", ROOT / "scripts/release.py")
 release = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(release)
@@ -109,7 +111,7 @@ class ReleaseTests(unittest.TestCase):
                     self.assertEqual(len(blocks), 1)
                     archive = self.out / f"tsk-v1.2.3-{target}.tar.gz"
                     digest = hashlib.sha256(archive.read_bytes()).hexdigest()
-                    self.assertEqual(re.findall(r'url "([^"\n]+)"', blocks[0]), [f"https://github.com/smarzban/tsk/releases/download/v1.2.3/{archive.name}"])
+                    self.assertEqual(re.findall(r'url "([^"\n]+)"', blocks[0]), [f"https://github.com/{EXPECTED_REPO}/releases/download/v1.2.3/{archive.name}"])
                     self.assertEqual(re.findall(r'sha256 "([^"\n]+)"', blocks[0]), [digest])
 
     def test_installer_assets_are_exact_and_have_one_matching_checksum_each(self):

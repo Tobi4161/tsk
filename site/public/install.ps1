@@ -38,6 +38,7 @@ Options:
 Environment:
   TSK_VERSION       Install a specific public release tag such as v1.2.3 (default: latest stable release)
   TSK_INSTALL_DIR   Install directory (default: %LOCALAPPDATA%\Programs\tsk\bin)
+  TSK_RELEASE_REPO  GitHub repository to install from, as owner/name (default: smarzban/tsk)
 '@ | Write-Output
 }
 
@@ -740,7 +741,11 @@ function Main {
         Fail 'Windows PowerShell 5.1 or newer is required'
     }
 
-    $repo = 'https://github.com/smarzban/tsk'
+    $releaseRepo = if ($env:TSK_RELEASE_REPO) { $env:TSK_RELEASE_REPO } else { 'smarzban/tsk' }
+    if ($releaseRepo -cnotmatch '\A[A-Za-z0-9-]+/[A-Za-z0-9._-]+\z') {
+        Fail 'TSK_RELEASE_REPO must be a GitHub owner/name such as smarzban/tsk'
+    }
+    $repo = "https://github.com/$releaseRepo"
     $version = $env:TSK_VERSION
     [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
     if (-not $version) {

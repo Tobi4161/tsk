@@ -17,9 +17,12 @@ const CURL_ENV: &str = "TSK_UPDATE_CURL";
 #[cfg(unix)]
 const CURL_PATH: &str = "/usr/bin/curl";
 #[cfg(unix)]
-const INSTALLER_URL: &str = "https://gettsk.sh/install.sh";
+const INSTALLER_NAME: &str = "install.sh";
 #[cfg(windows)]
-const INSTALLER_URL: &str = "https://www.gettsk.sh/install.ps1";
+const INSTALLER_NAME: &str = "install.ps1";
+/// Tells the installer which repository to download from. `tsk update` always sets it to
+/// the repository this build follows, so an inherited export cannot redirect an update.
+const INSTALLER_REPO_ENV: &str = "TSK_RELEASE_REPO";
 #[cfg(unix)]
 const SH_PATH: &str = "/bin/sh";
 /// The installer's own pin. `tsk update` always follows the latest stable release; an
@@ -57,6 +60,24 @@ pub enum UpdateOutcome {
     Installed,
 }
 
+/// The installer `tsk update` runs: gettsk.sh for the default repository, else the
+/// installer attached to that repository's latest release.
+fn installer_url() -> String {
+    installer_url_for(crate::update::RELEASE_REPO, INSTALLER_NAME)
+}
+
+fn installer_url_for(repo: &str, name: &str) -> String {
+    if repo == crate::update::DEFAULT_RELEASE_REPO {
+        // gettsk.sh serves install.sh from the apex; install.ps1 from www.
+        match name {
+            "install.ps1" => "https://www.gettsk.sh/install.ps1".to_string(),
+            _ => format!("https://gettsk.sh/{name}"),
+        }
+    } else {
+        format!("https://github.com/{repo}/releases/latest/download/{name}")
+    }
+}
+
 /// Update the running installation. Homebrew owns its formula upgrades; all other
 /// installations use the same published-release installer shown in the docs.
 #[cfg(unix)]
@@ -82,7 +103,7 @@ pub fn run() -> Result<UpdateOutcome, String> {
     let install_dir = executable
         .parent()
         .ok_or_else(|| "the running tsk executable has no installation directory".to_string())?;
-    let script = download_https(INSTALLER_URL, 1024 * 1024, 120)?;
+    let script = download_https(&installer_url(), 1024 * 1024, 120)?;
     let powershell = windows_powershell_path()?;
     let mut command = windows_installer_command(&powershell);
     run_windows_installer(&mut command, &script, install_dir, std::process::id())?;
@@ -116,6 +137,7 @@ fn run_windows_installer(
         .env("TSK_INSTALL_DIR", install_dir)
         .env("TSK_UPDATE", "1")
         .env("TSK_UPDATE_PID", update_pid.to_string())
+        .env(INSTALLER_REPO_ENV, crate::update::RELEASE_REPO)
         .env(
             "TSK_CURRENT_VERSION",
             concat!("v", env!("CARGO_PKG_VERSION")),
@@ -212,11 +234,12 @@ fn run_installer(
     shell: &Path,
     scratch: &Path,
 ) -> Result<(), String> {
-    let script = InstallerFile::create(scratch, "install.sh")?;
+    let script = InstallerFile::create(scratch, INSTALLER_NAME)?;
+    let url = installer_url();
     let download = hardened_curl(curl, 120)
         .arg("-o")
         .arg(&script.path)
-        .arg(INSTALLER_URL)
+        .arg(&url)
         .stdin(Stdio::null())
         .status()
         .map_err(|error| {
@@ -227,7 +250,7 @@ fn run_installer(
         })?;
     if !download.success() {
         return Err(format!(
-            "could not download {INSTALLER_URL} (exit {})",
+            "could not download {url} (exit {})",
             exit_label(download.code())
         ));
     }
@@ -236,6 +259,7 @@ fn run_installer(
         .stdin(Stdio::from(file))
         .env("TSK_INSTALL_DIR", install_dir)
         .env("TSK_UPDATE", "1")
+        .env(INSTALLER_REPO_ENV, crate::update::RELEASE_REPO)
         // The installer cannot know what it is replacing; the running binary can.
         .env(
             "TSK_CURRENT_VERSION",
@@ -402,7 +426,8 @@ impl InstallerFile {
         }
         if meta.len() == 0 {
             return Err(format!(
-                "downloaded installer from {INSTALLER_URL} is empty"
+                "downloaded installer from {} is empty",
+                installer_url()
             ));
         }
         Ok(file)
@@ -486,12 +511,13 @@ mod tests {
         fs::write(
             std::env::var_os("FAKE_ENV").expect("FAKE_ENV"),
             format!(
-                "{}|{}|{}|{}|{}",
+                "{}|{}|{}|{}|{}|{}",
                 std::env::var("TSK_INSTALL_DIR").expect("TSK_INSTALL_DIR"),
                 std::env::var("TSK_UPDATE").expect("TSK_UPDATE"),
                 std::env::var("TSK_UPDATE_PID").expect("TSK_UPDATE_PID"),
                 std::env::var("TSK_CURRENT_VERSION").expect("TSK_CURRENT_VERSION"),
-                version
+                version,
+                std::env::var("TSK_RELEASE_REPO").expect("TSK_RELEASE_REPO")
             ),
         )
         .expect("write captured environment");
@@ -524,7 +550,8 @@ mod tests {
         command
             .env("FAKE_SCRIPT", &script_copy)
             .env("FAKE_ENV", &env_log)
-            .env("TSK_VERSION", "v0.0.1");
+            .env("TSK_VERSION", "v0.0.1")
+            .env("TSK_RELEASE_REPO", "someone-else/tsk");
 
         run_windows_installer(&mut command, script, &install_dir, 4242).expect("handoff");
 
@@ -534,9 +561,10 @@ mod tests {
                 .expect("environment")
                 .trim_end(),
             format!(
-                "{}|1|4242|v{}|unset",
+                "{}|1|4242|v{}|unset|{}",
                 install_dir.display(),
-                env!("CARGO_PKG_VERSION")
+                env!("CARGO_PKG_VERSION"),
+                crate::update::RELEASE_REPO
             )
         );
         fs::remove_dir_all(dir).expect("cleanup");
@@ -635,7 +663,7 @@ mod tests {
             dir,
             "sh",
             &format!(
-                "#!/bin/sh\n[ $# -eq 0 ] || exit 99\ncat > '{}'\nprintf '%s|%s|%s|%s' \"$TSK_INSTALL_DIR\" \"$TSK_UPDATE\" \"$TSK_CURRENT_VERSION\" \"${{TSK_VERSION-unset}}\" > '{}'\n",
+                "#!/bin/sh\n[ $# -eq 0 ] || exit 99\ncat > '{}'\nprintf '%s|%s|%s|%s|%s' \"$TSK_INSTALL_DIR\" \"$TSK_UPDATE\" \"$TSK_CURRENT_VERSION\" \"${{TSK_VERSION-unset}}\" \"${{TSK_RELEASE_REPO-unset}}\" > '{}'\n",
                 script_copy.display(),
                 env_log.display()
             ),
@@ -667,10 +695,12 @@ mod tests {
         fs::create_dir_all(executable.parent().expect("executable parent"))
             .expect("create custom install directory");
 
-        // A stale pin in the caller's shell must never reach the installer.
+        // A stale pin or repository in the caller's shell must never reach the installer.
         std::env::set_var("TSK_VERSION", "v0.0.1");
+        std::env::set_var("TSK_RELEASE_REPO", "someone-else/tsk");
         let outcome = run_for(&executable, &curl, &shell, &dir);
         std::env::remove_var("TSK_VERSION");
+        std::env::remove_var("TSK_RELEASE_REPO");
         assert_eq!(outcome, Ok(UpdateOutcome::Installed));
 
         assert_eq!(
@@ -694,6 +724,11 @@ mod tests {
         assert_eq!(fields.next(), Some("1"));
         assert_eq!(fields.next(), Some(concat!("v", env!("CARGO_PKG_VERSION"))));
         assert_eq!(fields.next(), Some("unset"), "TSK_VERSION must be stripped");
+        assert_eq!(
+            fields.next(),
+            Some(crate::update::RELEASE_REPO),
+            "the installer downloads from the repository this build follows"
+        );
 
         let argv = fs::read_to_string(&argv).expect("curl argv");
         let args: Vec<&str> = argv.lines().collect();
@@ -711,7 +746,7 @@ mod tests {
             ]
         );
         assert_eq!(args[8], "-o");
-        assert_eq!(args[10], "https://gettsk.sh/install.sh");
+        assert_eq!(args[10], super::installer_url());
         assert!(
             args[9].starts_with(&dir.join(".tsk-installer.").display().to_string()),
             "script lives in a private directory under the scratch dir: {}",
@@ -827,5 +862,27 @@ mod tests {
         let bytes = super::download_https("https://www.gettsk.sh/install.ps1", 1 << 20, 30)
             .expect("HTTPS fetch of the PowerShell installer");
         assert!(!bytes.is_empty());
+    }
+
+    #[test]
+    fn installer_url_is_gettsk_for_the_default_repo_and_the_latest_release_otherwise() {
+        use super::installer_url_for;
+        let default = crate::update::DEFAULT_RELEASE_REPO;
+        assert_eq!(
+            installer_url_for(default, "install.sh"),
+            "https://gettsk.sh/install.sh"
+        );
+        assert_eq!(
+            installer_url_for(default, "install.ps1"),
+            "https://www.gettsk.sh/install.ps1"
+        );
+        assert_eq!(
+            installer_url_for("Tobi4161/tsk", "install.sh"),
+            "https://github.com/Tobi4161/tsk/releases/latest/download/install.sh"
+        );
+        assert_eq!(
+            installer_url_for("Tobi4161/tsk", "install.ps1"),
+            "https://github.com/Tobi4161/tsk/releases/latest/download/install.ps1"
+        );
     }
 }

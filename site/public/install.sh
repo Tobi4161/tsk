@@ -4,7 +4,7 @@ set -eu
 
 fail() { printf 'tsk install: %s\n' "$*" >&2; exit 1; }
 if [ "$#" -eq 1 ] && [ "$1" = --help ]; then
-    printf '%s\n' 'Usage: sh install.sh' 'TSK_VERSION=vX.Y.Z pins a public release tag (default: latest stable release).' 'TSK_INSTALL_DIR=/absolute/path overrides ~/.local/bin.'
+    printf '%s\n' 'Usage: sh install.sh' 'TSK_VERSION=vX.Y.Z pins a public release tag (default: latest stable release).' 'TSK_INSTALL_DIR=/absolute/path overrides ~/.local/bin.' 'TSK_RELEASE_REPO=owner/name installs from that GitHub repository (default: smarzban/tsk).'
     exit 0
 fi
 [ "$#" -eq 0 ] || fail 'unexpected arguments; use --help'
@@ -27,7 +27,16 @@ case "$(uname -s)/$(uname -m)" in
     *) fail 'supported platforms: macOS and Linux, ARM64 or x86-64' ;;
 esac
 
-repo=https://github.com/smarzban/tsk
+release_repo=${TSK_RELEASE_REPO:-smarzban/tsk}
+case "$release_repo" in
+    */*/* | /* | */ | *[!A-Za-z0-9._/-]*) fail 'TSK_RELEASE_REPO must be a GitHub owner/name such as smarzban/tsk' ;;
+    */*) ;;
+    *) fail 'TSK_RELEASE_REPO must be a GitHub owner/name such as smarzban/tsk' ;;
+esac
+case "${release_repo%%/*}" in
+    *[!A-Za-z0-9-]*) fail 'TSK_RELEASE_REPO must be a GitHub owner/name such as smarzban/tsk' ;;
+esac
+repo=https://github.com/$release_repo
 version=${TSK_VERSION:-}
 if [ -z "$version" ]; then
     latest=$(curl --proto '=https' --proto-redir '=https' --tlsv1.2 -fsSL -o /dev/null -w '%{url_effective}' "$repo/releases/latest") || fail 'could not resolve latest stable release'

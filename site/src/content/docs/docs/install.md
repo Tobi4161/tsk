@@ -97,7 +97,7 @@ Give your agent the task number to work on it. [Board guide](/docs/board/).
 | Homebrew | `brew update && brew upgrade tsk` |
 | Source | Pull and rebuild |
 
-`tsk update` runs the same checksum-verifying installer for the latest stable release. It ignores a `TSK_VERSION` in your shell and never moves to an older release. On a Homebrew copy it prints the `brew` command instead.
+`tsk update` runs the same checksum-verifying installer for the latest stable release. It ignores a `TSK_VERSION` or `TSK_RELEASE_REPO` in your shell and never moves to an older release. A copy released from a fork checks for and updates from that fork. On a Homebrew copy it prints the `brew` command instead.
 
 After it replaces the binary, `tsk update` refreshes what you already set up:
 
@@ -132,6 +132,7 @@ Your [task data](/docs/storage/#location) stays in place.
 | --- | --- | --- |
 | `TSK_VERSION=vX.Y.Z` | Both | Install that release instead of the latest stable one |
 | `TSK_INSTALL_DIR=<dir>` | Both | Install in this absolute directory. The setup asks are skipped |
+| `TSK_RELEASE_REPO=owner/name` | Both | Install a release from that GitHub repository, such as a fork, instead of `smarzban/tsk` |
 | `--help` | `install.sh` | Show help without downloading |
 | `-NoPathUpdate` | `install.ps1` | Leave your user PATH unchanged |
 | `-Help` | `install.ps1` | Show help without network access |
