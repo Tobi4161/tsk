@@ -445,7 +445,7 @@ fn edit_without_fields_is_usage() {
     assert!(output
         .stderr
         .contains(
-        "title, notes, append-notes, assignee, base, after, on, --unassign, --clear-base, or --clear-after is required"
+        "title, notes, append-notes, assignee, base, thread, after, on, --unassign, --clear-base, --clear-thread, or --clear-after is required"
     ));
 }
 
@@ -462,6 +462,8 @@ fn edit_help_names_title_notes_and_equals_forms() {
         "--notes=<value>",
         "--append-notes <text>",
         "--append-notes=<value>",
+        "--thread <name>",
+        "--clear-thread",
         "Arguments",
         "Options",
         "Refusals (exit 1):",
@@ -676,4 +678,103 @@ fn a_configured_me_name_reads_as_you_and_json_keeps_you() {
     let text = list(&["--group", "assignee"]);
     assert_eq!(text.code, 0, "{text:?}");
     assert!(text.stdout.contains("@saeed"), "{}", text.stdout);
+}
+
+fn edited_events(dir: &Path) -> Vec<tsk_tui::domain::TaskEvent> {
+    TaskStore::new(dir).load().expect("load").tasks()[0]
+        .history
+        .iter()
+        .filter(|event| event.kind == TaskEventKind::Edited)
+        .cloned()
+        .collect()
+}
+
+#[test]
+fn edit_thread_sets_normalizes_clears_and_records_the_field() {
+    let dir = temp_state_dir("thread");
+    let _guard = TempDirGuard(dir.clone());
+    assert_eq!(add_task(&dir, "threaded").code, 0);
+    let before = edited_events(&dir).len();
+
+    let set = edit(&dir, &["T1", "--thread", "Release-2"]);
+    assert_eq!(set.code, 0, "{set:?}");
+    let task = TaskStore::new(&dir).load().expect("load").tasks()[0].clone();
+    assert_eq!(task.thread.as_deref(), Some("release-2"));
+    assert_eq!(task.notes.as_deref(), Some("original notes"));
+    let events = edited_events(&dir);
+    assert_eq!(events.len(), before + 1, "one paper trail entry");
+    assert_eq!(
+        events
+            .last()
+            .and_then(|event| event.detail.as_ref())
+            .map(|detail| detail.fields.clone()),
+        Some(vec![tsk_tui::domain::EditedField::Thread])
+    );
+
+    let again = edit(&dir, &["T1", "--thread=release-2"]);
+    assert_eq!(again.code, 0, "{again:?}");
+    assert_eq!(
+        edited_events(&dir).len(),
+        before + 1,
+        "a repeat writes nothing"
+    );
+
+    let cleared = edit(&dir, &["T1", "--clear-thread"]);
+    assert_eq!(cleared.code, 0, "{cleared:?}");
+    let task = TaskStore::new(&dir).load().expect("load").tasks()[0].clone();
+    assert!(task.thread.is_none());
+    let events = edited_events(&dir);
+    assert_eq!(events.len(), before + 2);
+    assert_eq!(
+        events
+            .last()
+            .and_then(|event| event.detail.as_ref())
+            .map(|detail| detail.fields.clone()),
+        Some(vec![tsk_tui::domain::EditedField::Thread])
+    );
+
+    let clear_again = edit(&dir, &["T1", "--clear-thread"]);
+    assert_eq!(clear_again.code, 0, "{clear_again:?}");
+    assert_eq!(
+        edited_events(&dir).len(),
+        before + 2,
+        "a repeat clear writes nothing"
+    );
+}
+
+#[test]
+fn edit_thread_refuses_conflicts_and_invalid_names_without_mutation() {
+    let dir = temp_state_dir("thread-refuse");
+    let _guard = TempDirGuard(dir.clone());
+    assert_eq!(add_task(&dir, "keep thread").code, 0);
+    assert_eq!(edit(&dir, &["T1", "--thread", "auth"]).code, 0);
+
+    let both = edit(&dir, &["T1", "--thread", "other", "--clear-thread"]);
+    assert_eq!(both.code, 2, "{both:?}");
+    assert!(
+        both.stderr
+            .contains("--clear-thread cannot be used with --thread"),
+        "{both:?}"
+    );
+
+    let invalid: [&[&str]; 4] = [
+        &["T1", "--thread", "bad_name"],
+        &["T1", "--thread=bad_name"],
+        &["T1", "--thread=-lead"],
+        &["T1", "--thread="],
+    ];
+    for name in invalid {
+        let output = edit(&dir, name);
+        assert_eq!(output.code, 2, "{name:?}: {output:?}");
+        assert!(
+            output.stderr.contains("invalid thread name · "),
+            "{name:?}: {output:?}"
+        );
+    }
+    assert_eq!(
+        TaskStore::new(&dir).load().expect("load").tasks()[0]
+            .thread
+            .as_deref(),
+        Some("auth")
+    );
 }

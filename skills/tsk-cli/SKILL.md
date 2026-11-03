@@ -177,8 +177,8 @@ criteria, no design document, no code. It ends with a better task on the board.
    - Does not exist yet: `tsk add -t "…" -n "…"` in the agreed scope (`--desk`, `-p`), with
      `--thread` if agreed.
    - Steps only when the user wants order of work tracked: `tsk steps T12 add "…"` per step.
-   - Never change status. `edit` cannot change scope or thread: for a scope change re-add in the
-     right scope and archive the stray; say so before doing it.
+   - Never change status. `edit --thread <name>` or `--clear-thread` moves the thread. `edit` cannot
+     change scope: re-add in the right scope and archive the stray; say so before doing it.
 7. **Stop.** The hand-off is the updated or created task. Report its number and title in one line.
    Do not offer builders, worktrees, or plans, and do not start building unless asked.
 
