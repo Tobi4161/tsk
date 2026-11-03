@@ -14,7 +14,8 @@ import tomllib
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
-REPO = "https://github.com/smarzban/tsk"
+# The release workflow passes its own repository, so a fork's formula points at the fork.
+REPO = "https://github.com/" + (os.environ.get("TSK_RELEASE_REPO") or "smarzban/tsk")
 TARGETS = (
     "aarch64-apple-darwin",
     "x86_64-apple-darwin",

@@ -33,6 +33,7 @@ class InstallerTests(unittest.TestCase):
         self.env.pop("ZDOTDIR", None)
         self.env.pop("TSK_VERSION", None)
         self.env.pop("TSK_INSTALL_DIR", None)
+        self.env.pop("TSK_RELEASE_REPO", None)
         # Packaging CI sets CI=true; clear it so Herdr-prompt branches stay deterministic.
         self.env.pop("CI", None)
         self.setup_log = self.root / "setup-herdr.log"
@@ -45,7 +46,7 @@ with open(os.environ["CURL_ARGS"], "a") as out: out.write(json.dumps(args) + "\\
 with open(os.environ["REQUESTS"], "a") as out: out.write(url + "\\n")
 if os.environ.get("FAIL_DOWNLOAD"): sys.exit(22)
 if url.endswith("/releases/latest"):
-    print("https://github.com/smarzban/tsk/releases/tag/v1.2.3", end="")
+    print(url[: -len("/releases/latest")] + "/releases/tag/v1.2.3", end="")
 else:
     assert "/releases/download/v1.2.3/" in url, url
     path = pathlib.Path(os.environ["ASSETS"]) / url.rsplit("/", 1)[-1]
@@ -273,6 +274,29 @@ echo installed-fixture
         self.assertFalse((home / ".bashrc").exists())
         self.assertFalse((home / ".profile").exists())
         self.assertNotIn("Reopen your terminal", result.stdout)
+
+    def test_release_repo_defaults_to_upstream_and_follows_tsk_release_repo(self):
+        self.archive()
+        result = self.run_install()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        requests = Path(self.env["REQUESTS"]).read_text().splitlines()
+        self.assertTrue(requests)
+        self.assertTrue(all(url.startswith("https://github.com/smarzban/tsk/releases/") for url in requests), requests)
+
+        Path(self.env["REQUESTS"]).unlink()
+        result = self.run_install(TSK_RELEASE_REPO="Tobi4161/tsk")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        requests = Path(self.env["REQUESTS"]).read_text().splitlines()
+        self.assertTrue(requests)
+        self.assertTrue(all(url.startswith("https://github.com/Tobi4161/tsk/releases/") for url in requests), requests)
+
+    def test_malformed_release_repo_fails_before_any_download(self):
+        for repo in ["tsk", "a/b/c", "https://evil.example/x", "own.er/tsk", "a/b\nc/d", "owner/"]:
+            with self.subTest(repo=repo):
+                result = self.run_install(TSK_RELEASE_REPO=repo)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("TSK_RELEASE_REPO must be a GitHub owner/name", result.stderr)
+                self.assertFalse(Path(self.env["REQUESTS"]).exists())
 
     def test_failed_download_never_edits_shell_config(self):
         self.archive(bad_checksum=True)

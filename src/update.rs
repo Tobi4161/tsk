@@ -14,7 +14,50 @@ use crate::fsperm;
 const UPDATE_FILE: &str = "update.json";
 pub const UPDATE_TEMP_PREFIX: &str = ".update.json.tmp.";
 pub const STALE_AFTER_SECS: u64 = 24 * 60 * 60;
-const RELEASES_URL: &str = "https://api.github.com/repos/smarzban/tsk/releases/latest";
+/// The GitHub repository releases come from, as `owner/name`.
+pub const DEFAULT_RELEASE_REPO: &str = "smarzban/tsk";
+/// The repository this build follows for the release check and `tsk update`. Set at build
+/// time with `TSK_RELEASE_REPO=owner/name`; the release workflow passes its own repository,
+/// so a fork's releases update from the fork.
+pub const RELEASE_REPO: &str = match option_env!("TSK_RELEASE_REPO") {
+    Some(repo) => repo,
+    None => DEFAULT_RELEASE_REPO,
+};
+const _: () = assert!(
+    is_repo_slug(RELEASE_REPO),
+    "TSK_RELEASE_REPO must be a GitHub owner/name such as smarzban/tsk"
+);
+
+/// `owner/name` with GitHub's characters: owner is ASCII alphanumerics and `-`, the name
+/// adds `.` and `_`. Anything else (a URL, a path, whitespace) is refused at compile time.
+pub const fn is_repo_slug(repo: &str) -> bool {
+    let bytes = repo.as_bytes();
+    let mut slash = None;
+    let mut i = 0;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if b == b'/' {
+            if slash.is_some() {
+                return false;
+            }
+            slash = Some(i);
+        } else if !(b.is_ascii_alphanumeric()
+            || b == b'-'
+            || (slash.is_some() && (b == b'.' || b == b'_')))
+        {
+            return false;
+        }
+        i += 1;
+    }
+    match slash {
+        Some(at) => at > 0 && at + 1 < bytes.len(),
+        None => false,
+    }
+}
+
+fn releases_url() -> String {
+    format!("https://api.github.com/repos/{RELEASE_REPO}/releases/latest")
+}
 static BACKGROUND_FETCH: AtomicBool = AtomicBool::new(true);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -297,7 +340,7 @@ fn fetch_latest() -> Option<String> {
 
 #[cfg(windows)]
 fn fetch_latest() -> Option<String> {
-    let bytes = crate::cli::update::download_https(RELEASES_URL, 64 * 1024, 15).ok()?;
+    let bytes = crate::cli::update::download_https(&releases_url(), 64 * 1024, 15).ok()?;
     parse_latest_release(&bytes)
 }
 
@@ -312,7 +355,7 @@ fn parse_latest_release(bytes: &[u8]) -> Option<String> {
 #[cfg(unix)]
 pub fn fetch_latest_with(curl: &Path) -> Option<String> {
     let output = crate::cli::update::hardened_curl(curl, 15)
-        .arg(RELEASES_URL)
+        .arg(releases_url())
         .output()
         .ok()?;
     if !output.status.success() {
@@ -399,6 +442,26 @@ mod tests {
         );
     }
 
+    #[test]
+    fn release_repo_slug_accepts_owner_name_and_refuses_everything_else() {
+        assert!(is_repo_slug(DEFAULT_RELEASE_REPO));
+        assert!(is_repo_slug("Tobi4161/tsk"));
+        assert!(is_repo_slug("some-org/tsk.fork_2"));
+        for bad in [
+            "",
+            "tsk",
+            "/tsk",
+            "owner/",
+            "a/b/c",
+            "own.er/tsk",
+            "owner/t sk",
+            "https://github.com/owner/tsk",
+            "owner/tsk\n",
+        ] {
+            assert!(!is_repo_slug(bad), "{bad:?}");
+        }
+    }
+
     #[cfg(unix)]
     #[test]
     fn release_check_uses_the_shared_hardened_curl_policy() {
@@ -432,7 +495,7 @@ mod tests {
                 "-fsSL",
                 "--max-time",
                 "15",
-                RELEASES_URL
+                releases_url().as_str()
             ]
         );
         let _ = std::fs::remove_dir_all(dir);

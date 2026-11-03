@@ -66,6 +66,8 @@ jobs:
       TAG: ${{ inputs.tag }}
       TARGET: ${{ matrix.target }}
       MACOSX_DEPLOYMENT_TARGET: "11.0"
+      # Built binaries check for and update from the repository that released them.
+      TSK_RELEASE_REPO: ${{ github.repository }}
     steps:
       - name: Validate tag syntax
         shell: bash
@@ -115,6 +117,7 @@ jobs:
       TAG: ${{ inputs.tag }}
       GH_TOKEN: ${{ github.token }}
       RELEASE_COMMIT: ${{ needs.resolve.outputs.commit }}
+      TSK_RELEASE_REPO: ${{ github.repository }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
