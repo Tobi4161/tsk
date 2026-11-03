@@ -19,7 +19,7 @@ tsk list
 | [`tsk add`](#add) | Add a task, or every task in a JSON plan |
 | [`tsk list`](#list) | Read tasks |
 | [`tsk status`](#status) | Set a task's status, block it, or put it up for review |
-| [`tsk edit`](#edit) | Change a task's title, notes, assignee, base, after list, or who its block or review waits on |
+| [`tsk edit`](#edit) | Change a task's title, notes, assignee, base, thread, after list, or who its block or review waits on |
 | [`tsk steps`](#steps) | Add, toggle, rename, move, or remove a step |
 | [`tsk reply`](#reply) | Answer a block, or give feedback on a review |
 | [`tsk check`](#check) | Mark a review check open, passed, or failed |
@@ -375,10 +375,10 @@ tsk status T12 review --done "Opened PR #42" --check "tests pass" --next "docs"
 
 ## edit
 
-Changes a task's title, notes, assignee, dispatch base, the tasks it runs after, or who its open block or review waits on. Scope and thread stay as they are: to move a task, add it again in the right scope and archive the old one.
+Changes a task's title, notes, assignee, dispatch base, thread, the tasks it runs after, or who its open block or review waits on. Scope stays as it is: to move a task to another project or the desk, add it again there and archive the old one.
 
 ```text
-tsk edit <task> [--title <title>] [--notes <notes> | --append-notes <text>] [--assignee <name> | --unassign] [--base <branch> | --clear-base] [--after <task>]... [--clear-after] [--on <who>] [--state-dir <dir>]
+tsk edit <task> [--title <title>] [--notes <notes> | --append-notes <text>] [--assignee <name> | --unassign] [--base <branch> | --clear-base] [--thread <name> | --clear-thread] [--after <task>]... [--clear-after] [--on <who>] [--state-dir <dir>]
 ```
 
 | Flag | Meaning |
@@ -390,6 +390,8 @@ tsk edit <task> [--title <title>] [--notes <notes> | --append-notes <text>] [--a
 | `--unassign` | Clear the assignee |
 | `--base <branch>` | Dispatch from this existing branch, not a tag or commit (`unknown-base`) |
 | `--clear-base` | Dispatch from the project's default branch |
+| `--thread <name>` | Move the task onto this thread ([thread names](/docs/capture/#thread-names)) |
+| `--clear-thread` | Take the task off its thread |
 | `--after <task>` | Run after this task; repeat for more. Replaces the list |
 | `--clear-after` | Run after nothing |
 | `--on <who>` | Change who the open block or review waits on, as for [block](#block) and [review](#review) `--on` |
@@ -403,6 +405,7 @@ tsk edit <task> [--title <title>] [--notes <notes> | --append-notes <text>] [--a
 
 ```sh
 tsk edit T205 --after T202 --after T12
+tsk edit T12 --thread auth
 ```
 
 ## steps

@@ -1,4 +1,4 @@
-//! Headless edits: title, notes, assignee, base, after, and who an open block or review
+//! Headless edits: title, notes, assignee, base, thread, after, and who an open block or review
 //! waits on.
 
 use std::path::PathBuf;
@@ -23,6 +23,8 @@ pub struct EditFields {
     pub assignee: Option<Option<String>>,
     /// `None` leaves it unchanged, `Some(None)` clears it.
     pub base: Option<Option<String>>,
+    /// `None` leaves it unchanged, `Some(None)` clears it. Normalized at the argv boundary.
+    pub thread: Option<Option<String>>,
     /// `None` leaves it unchanged; `Some` replaces the list (empty clears it).
     pub after: Option<Vec<u64>>,
     /// Who the open block or review waits on, as typed; `None` leaves it.
@@ -79,7 +81,7 @@ impl EditError {
     }
 }
 
-/// Replace the supplied title and/or notes, keeping scope and thread.
+/// Replace the supplied fields, keeping scope.
 ///
 /// Whitespace-only notes clear the field. Repeating the stored values writes nothing; a
 /// repeated append adds its text again.
@@ -124,6 +126,7 @@ pub fn run(
         append_notes: fields.append_notes,
         assignee,
         base: fields.base,
+        thread: fields.thread,
         after: fields.after,
         on: fields.on.zip(profiles),
     };
@@ -158,6 +161,7 @@ struct Edit {
     append_notes: Option<String>,
     assignee: Option<Option<Assignee>>,
     base: Option<Option<String>>,
+    thread: Option<Option<String>>,
     after: Option<Vec<u64>>,
     /// The typed `--on` value and the profiles it is read against.
     on: Option<(String, AgentProfiles)>,
@@ -219,6 +223,10 @@ fn apply(
             return (Err(EditError::UnknownBase(error)), false);
         }
     }
+    let next_thread = fields
+        .thread
+        .clone()
+        .unwrap_or_else(|| found.thread.clone());
     let next_after = fields.after.clone().unwrap_or_else(|| found.after.clone());
     let changed_after = next_after != found.after;
     if changed_after {
@@ -244,6 +252,7 @@ fn apply(
         && next_notes == found.notes
         && next_assignee == found.assignee
         && next_base == found.base
+        && next_thread == found.thread
         && !changed_after
         && !changed_on
     {
@@ -259,14 +268,15 @@ fn apply(
     let fields_changed = next_title != found.title
         || next_notes != found.notes
         || next_assignee != found.assignee
-        || next_base != found.base;
+        || next_base != found.base
+        || next_thread != found.thread;
     let edited = if fields_changed {
         state.edit_with_assignee_and_base(
             found.id,
             &next_title,
             next_notes,
             found.scope,
-            found.thread,
+            next_thread,
             next_assignee,
             next_base,
         )

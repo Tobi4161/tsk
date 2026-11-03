@@ -768,6 +768,9 @@ pub struct FlagEdit {
     pub unassign: bool,
     pub base: Option<String>,
     pub clear_base: bool,
+    /// `--thread`, normalized at the argv boundary like `tsk add --thread`.
+    pub thread: Option<String>,
+    pub clear_thread: bool,
     /// `--after`, repeatable: the task numbers this task runs after, replacing the list.
     pub after: Vec<u64>,
     pub clear_after: bool,
@@ -782,6 +785,12 @@ pub struct FlagEdit {
 pub fn parse_assignee(value: &str) -> Result<String, String> {
     normalize_thread(value.strip_prefix('@').unwrap_or(value))
         .map_err(|error| format!("invalid assignee name · {}", thread_refusal_message(error)))
+}
+
+/// Parse one `--thread` value by the thread rules, as `tsk add` and `tsk edit` share them.
+pub fn parse_thread(value: &str) -> Result<String, String> {
+    normalize_thread(value)
+        .map_err(|error| format!("invalid thread name · {}", thread_refusal_message(error)))
 }
 
 /// Parse one `--after` value: a task number, with or without its `T`.
@@ -809,6 +818,8 @@ pub fn parse_flag_edit(args: &[String]) -> Result<FlagEdit, String> {
         unassign: false,
         base: None,
         clear_base: false,
+        thread: None,
+        clear_thread: false,
         after: Vec::new(),
         clear_after: false,
         on: None,
@@ -878,6 +889,18 @@ pub fn parse_flag_edit(args: &[String]) -> Result<FlagEdit, String> {
                 parsed.clear_base = true;
                 index += 1;
             }
+            flag if flag.starts_with("--thread=") => {
+                parsed.thread = Some(parse_thread(&flag["--thread=".len()..])?);
+                index += 1;
+            }
+            "--thread" => {
+                parsed.thread = Some(parse_thread(&value(flag)?)?);
+                index += 2;
+            }
+            "--clear-thread" => {
+                parsed.clear_thread = true;
+                index += 1;
+            }
             flag if flag.starts_with("--after=") => {
                 parsed
                     .after
@@ -919,6 +942,9 @@ pub fn parse_flag_edit(args: &[String]) -> Result<FlagEdit, String> {
     }
     if parsed.clear_base && parsed.base.is_some() {
         return Err("--clear-base cannot be used with --base".into());
+    }
+    if parsed.clear_thread && parsed.thread.is_some() {
+        return Err("--clear-thread cannot be used with --thread".into());
     }
     if parsed.clear_after && !parsed.after.is_empty() {
         return Err("--clear-after cannot be used with --after".into());
@@ -1219,6 +1245,8 @@ mod tests {
                 unassign: false,
                 base: None,
                 clear_base: false,
+                thread: None,
+                clear_thread: false,
                 after: Vec::new(),
                 clear_after: false,
                 on: None,
@@ -1561,9 +1589,7 @@ pub fn parse_flag_add(args: &[String]) -> Result<FlagAdd, String> {
                 index += 1;
             }
             flag if flag.starts_with("--thread=") => {
-                parsed.thread = Some(normalize_thread(&flag["--thread=".len()..]).map_err(
-                    |error| format!("invalid thread name · {}", thread_refusal_message(error)),
-                )?);
+                parsed.thread = Some(parse_thread(&flag["--thread=".len()..])?);
                 parsed.has_item_flags = true;
                 index += 1;
             }
@@ -1583,9 +1609,7 @@ pub fn parse_flag_add(args: &[String]) -> Result<FlagAdd, String> {
                 index += 2;
             }
             "--thread" => {
-                parsed.thread = Some(normalize_thread(&value(flag)?).map_err(|error| {
-                    format!("invalid thread name · {}", thread_refusal_message(error))
-                })?);
+                parsed.thread = Some(parse_thread(&value(flag)?)?);
                 parsed.has_item_flags = true;
                 index += 2;
             }

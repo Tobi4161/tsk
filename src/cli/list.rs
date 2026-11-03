@@ -5,11 +5,9 @@ use std::path::PathBuf;
 use serde::Serialize;
 use uuid::Uuid;
 
-use crate::cli::parser::{parse_task_address, TaskAddress};
+use crate::cli::parser::{parse_task_address, parse_thread, TaskAddress};
 use crate::context::snapshot_from_env;
-use crate::domain::{
-    normalize_thread, thread_refusal_message, DomainState, HumanStatus, TaskScope,
-};
+use crate::domain::{DomainState, HumanStatus, TaskScope};
 use crate::scope::{resolve_permissive_project_path, PathIdentityCache};
 use crate::store::{default_state_dir, TaskStore};
 use crate::ui::queue::{arrange_rows, GroupBy, SortBy, ThreadFilter};
@@ -177,9 +175,7 @@ pub fn parse(args: &[String]) -> Result<ListInput, String> {
             }
             flag if flag.starts_with("--thread=") => {
                 once("--thread")?;
-                input.thread = Some(normalize_thread(&flag["--thread=".len()..]).map_err(
-                    |error| format!("invalid thread name · {}", thread_refusal_message(error)),
-                )?);
+                input.thread = Some(parse_thread(&flag["--thread=".len()..])?);
                 index += 1;
             }
             flag if flag.starts_with("--assignee=") => {
@@ -198,9 +194,7 @@ pub fn parse(args: &[String]) -> Result<ListInput, String> {
             }
             "--thread" => {
                 once("--thread")?;
-                input.thread = Some(normalize_thread(&value(flag)?).map_err(|error| {
-                    format!("invalid thread name · {}", thread_refusal_message(error))
-                })?);
+                input.thread = Some(parse_thread(&value(flag)?)?);
                 index += 2;
             }
             "--assignee" => {

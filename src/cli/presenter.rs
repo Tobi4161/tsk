@@ -126,7 +126,7 @@ const STATUS_USAGE: &[&str] = &[
     "tsk status <task> review [--done <text>] [--check <text>]... [--next <text>] [--on <who>]",
 ];
 const EDIT_USAGE: &[&str] = &[
-    "tsk edit <task> [--title <title>] [--notes <notes> | --append-notes <text>] [--assignee <name> | --unassign] [--base <branch> | --clear-base] [--after <task>]... [--clear-after] [--on <who>] [--state-dir <dir>]",
+    "tsk edit <task> [--title <title>] [--notes <notes> | --append-notes <text>] [--assignee <name> | --unassign] [--base <branch> | --clear-base] [--thread <name> | --clear-thread] [--after <task>]... [--clear-after] [--on <who>] [--state-dir <dir>]",
 ];
 const STEPS_USAGE: &[&str] = &[
     "tsk steps <task> add <text> [<place>] [--state-dir <dir>]",
@@ -205,7 +205,7 @@ pub fn top_level_help() -> String {
         "  add      create a task, or every task in a JSON plan\n",
         "  list     read tasks\n",
         "  status   set a task's status, block it, or put it up for review\n",
-        "  edit     change title, notes, assignee, base, after list, or who it waits on\n",
+        "  edit     set title, notes, assignee, base, thread, after, or who it waits on\n",
         "  steps    add, toggle, rename, move, or remove a step\n",
         "  reply    answer a block, or give feedback on a review\n",
         "  check    mark a review check open, passed, or failed\n",
@@ -2158,7 +2158,7 @@ pub fn status_rejected(error: StatusError, task: TaskAddress) -> CliOutput {
 pub fn edit_help() -> CliOutput {
     help(HelpDoc {
         usage: lines(EDIT_USAGE),
-        purpose: "Change a task's title, notes, assignee, dispatch base, the tasks it runs after, or who its open block or review waits on. Scope and thread stay as they are.".into(),
+        purpose: "Change a task's title, notes, assignee, dispatch base, thread, the tasks it runs after, or who its open block or review waits on. Scope stays as it is.".into(),
         groups: vec![
             group("Arguments", &[("<task>", "a task number or UUID")]),
             group(
@@ -2183,6 +2183,8 @@ pub fn edit_help() -> CliOutput {
                         "--clear-base",
                         "dispatch from the project's default branch",
                     ),
+                    ("--thread <name>", "move the task onto this thread"),
+                    ("--clear-thread", "take the task off its thread"),
                     (
                         "--after <task>",
                         "run after this task; repeat for more, replaces the list",
@@ -2204,6 +2206,7 @@ pub fn edit_help() -> CliOutput {
             "tsk edit T12 --title \"Fix timeout on slow connections\"".into(),
             "tsk edit T12 --assignee claude --base main".into(),
             "tsk edit T205 --after T202 --after T12".into(),
+            "tsk edit T12 --thread auth".into(),
             "tsk edit T12 --on coordinator".into(),
         ],
         refusals: vec![

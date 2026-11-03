@@ -16,6 +16,7 @@ first added in the same Unreleased section is not an entry: edit that entry inst
 
 - `[after] start = false` in `config.toml` stops a done from starting the ready tasks waiting on it; the done says which can start ([after](https://gettsk.sh/docs/storage/#after)).
 - `tsk check T12 2 passed` marks one review check open, passed, or failed from the command line ([check](https://gettsk.sh/docs/cli/#check)).
+- `tsk edit T12 --thread <name>` moves a task onto a thread and `--clear-thread` takes it off ([edit](https://gettsk.sh/docs/cli/#edit)).
 
 ### Changed
 
