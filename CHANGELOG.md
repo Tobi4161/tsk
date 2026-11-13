@@ -12,10 +12,12 @@ first added in the same Unreleased section is not an entry: edit that entry inst
 
 ## Unreleased
 
+## v0.15.0
+
 ### Breaking
 
 - Dispatch refusal codes name no host: `not-in-herdr` is `no-host` and `herdr-failed` is `host-failed` ([refusal codes](https://gettsk.sh/docs/cli/#exit-contract)).
-- Store format 17 records each dispatch's host and project titles: `tsk list T12 --json` shows `host` and `session`, and Herdr keeps `herdr_workspace_id`. tsk 0.13 and older refuse it; roll back with `tsk.json.v6`.
+- Store format 17 records each dispatch's host and project titles: `tsk list T12 --json` shows `host` and `session`, and Herdr keeps `herdr_workspace_id`. tsk 0.14 and older refuse it; roll back with `tsk.json.v6`.
 
 ### Added
 
@@ -24,6 +26,23 @@ first added in the same Unreleased section is not an entry: edit that entry inst
 - A task dispatched in Herdr or Rex starts plainly in the other; relaunch, reply delivery, and cleanup there refuse with `other-host`.
 - `[dispatch] worktrees` in `config.toml` sets where dispatch puts new worktrees ([worktree location](https://gettsk.sh/docs/storage/#worktree-location)).
 - Project titles: `ctrl+e` on a project row or `tsk project title` names a project; `-p` accepts the title ([project titles](https://gettsk.sh/docs/board/#project-titles)). Thanks @s3rgiosan (#249).
+
+### Changed
+
+- Agent skills 1.8.0 cover dispatch in Herdr and Rex; the coordinator hands a passed review to you and cleans up after every merge. `tsk update` refreshes installed copies.
+- Dispatch puts new worktrees under `~/.tsk/worktrees/<repo>/` instead of Herdr's `~/.herdr/worktrees`. Tasks already dispatched keep their worktree.
+- Dispatch messages name Herdr or Rex: outside both, a start prints `no launch: outside Herdr or Rex`.
+
+### Fixed
+
+- The starter tour and the site footer link to https://x.com/smarzban. A tour already on your board keeps its notes.
+- `tsk list -p` and `tsk project archive|unarchive` refuse a name two projects share, like `tsk add`, instead of matching nothing. Thanks @s3rgiosan (#249).
+- `tsk list --all --group project` labels projects that share a name by their shortest distinct path, such as `site-a/wordpress/wp-content`. Thanks @s3rgiosan (#249).
+
+## v0.14.0
+
+### Added
+
 - `[after] start = false` in `config.toml` stops a done from starting the ready tasks waiting on it; the done says which can start ([after](https://gettsk.sh/docs/storage/#after)).
 - `tsk check T12 2 passed` marks one review check open, passed, or failed from the command line ([check](https://gettsk.sh/docs/cli/#check)).
 - `tsk edit T12 --thread <name>` moves a task onto a thread and `--clear-thread` takes it off ([edit](https://gettsk.sh/docs/cli/#edit)).
@@ -31,17 +50,11 @@ first added in the same Unreleased section is not an entry: edit that entry inst
 
 ### Changed
 
-- Agent skills 1.7.0 cover dispatch in Herdr and Rex; the coordinator hands a passed review to you and cleans up after every merge. `tsk update` refreshes installed copies.
-- Dispatch puts new worktrees under `~/.tsk/worktrees/<repo>/` instead of Herdr's `~/.herdr/worktrees`. Tasks already dispatched keep their worktree.
-- Dispatch messages name Herdr or Rex: outside both, a start prints `no launch: outside Herdr or Rex`.
 - `tsk setup` names both installed skills, `tsk-cli` and `tsk-coordinator`, beside each agent's skills directory instead of printing only the `tsk-cli` file.
 - A backup URL with a user name, such as `https://org@host/…`, no longer asks your credential manager. Drop `org@` from the URL ([credentials](https://gettsk.sh/docs/storage/#credentials)).
 
 ### Fixed
 
-- The starter tour and the site footer link to https://x.com/smarzban. A tour already on your board keeps its notes.
-- `tsk list -p` and `tsk project archive|unarchive` refuse a name two projects share, like `tsk add`, instead of matching nothing. Thanks @s3rgiosan (#249).
-- `tsk list --all --group project` labels projects that share a name by their shortest distinct path, such as `site-a/wordpress/wp-content`. Thanks @s3rgiosan (#249).
 - A bare token in an https backup URL is removed and masked even when the URL does not start at the scheme.
 - An open board shows the update notice as soon as the release check finishes, and a board left open checks again once a day.
 - A token in a backup URL stays out of git's command line and the backup's local clone, so other local users cannot see it.
