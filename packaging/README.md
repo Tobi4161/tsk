@@ -5,7 +5,8 @@ steps. The user-facing install guide is [install.md](https://gettsk.sh/docs/inst
 
 ## Artifacts
 
-Each stable `vX.Y.Z` release carries six archives, each built natively:
+A full release carries six archives, each built natively. This fork's workflow builds only
+`x86_64-unknown-linux-musl` ([Shipping fewer targets](#shipping-fewer-targets)).
 
 | Target | Build runner | Format |
 | --- | --- | --- |
@@ -22,8 +23,9 @@ Each stable `vX.Y.Z` release carries six archives, each built natively:
 - macOS builds set `MACOSX_DEPLOYMENT_TARGET=11.0`. Linux builds use a native musl
   compiler, independent of the runner's glibc. Both Windows architectures build and test
   natively with MSVC.
-- `SHA256SUMS` covers the six archives plus `install.sh` and `install.ps1`.
-- `tsk.rb`, the Homebrew formula, pins the four Unix archives by URL and SHA-256.
+- `SHA256SUMS` covers the release's archives plus `install.sh` and `install.ps1`.
+- `tsk.rb`, the Homebrew formula, pins the four Unix archives by URL and SHA-256. A release
+  missing any of them has no formula.
 - tsk is not published to crates.io: `Cargo.toml` keeps `publish = false`.
 
 ## Build locally
@@ -54,8 +56,8 @@ python3 scripts/release.py assemble <tag> <output-directory>
 ```
 
 - `package` refuses to overwrite an archive.
-- `assemble` requires all six archives and validates their contents before writing
-  checksums or a formula. It refuses an existing file or symlink at every output
+- `assemble` requires every archive of its targets (all six, or the list given with
+  `--targets`) and validates their contents before writing checksums or a formula. It refuses an existing file or symlink at every output
   (`install.sh`, `install.ps1`, `SHA256SUMS`, `tsk.rb`): use a clean output directory.
 - Neither checks a binary's machine architecture; the workflow's native build matrix owns
   that. Never feed one host binary into several targets for a real release.
@@ -176,6 +178,22 @@ at build time by `TSK_RELEASE_REPO=owner/name` (`RELEASE_REPO` in `src/update.rs
   the installer downloads archives from the same repository.
 - A fork needs at least one published (non-draft) release before its builds can update.
 - A local build that should update from the fork: `TSK_RELEASE_REPO=owner/name cargo build --release`.
+
+### Shipping fewer targets
+
+The fork's `Prepare release` builds only `x86_64-unknown-linux-musl`, so its draft has one
+archive, `SHA256SUMS`, both installers, and no `tsk.rb`. On any other platform the fork's
+installer and `tsk update` find no archive and fail.
+
+To ship another target:
+
+1. Uncomment its entry in the `build` matrix of `.github/workflows/release.yml`.
+2. Add it to `--targets` in the `draft` job's assemble step.
+3. Run the packaging tests: `test_workflow.py` checks that the two lists match.
+
+With all four macOS and Linux targets listed, `assemble` writes `tsk.rb` again. Release
+steps that use a missing asset (the Homebrew rehearsal, the tap update, the Windows smokes)
+do not apply until then.
 
 ## Installer contracts
 
