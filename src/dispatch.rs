@@ -661,6 +661,11 @@ pub trait DispatchHost {
     fn worktree_root(&self, _project: &Path) -> Result<Option<PathBuf>, String> {
         Ok(None)
     }
+    /// `[dispatch] branch_prefix` from `config.toml`, validated; `None` when unset. An error
+    /// is a `config.toml` fault, checked before anything is created.
+    fn dispatch_branch_prefix(&self) -> Result<Option<String>, String> {
+        Ok(None)
+    }
     fn create_worktree(
         &mut self,
         project: &Path,
@@ -1426,6 +1431,14 @@ impl DispatchHost for SystemDispatchHost {
 
     fn worktree_root(&self, project: &Path) -> Result<Option<PathBuf>, String> {
         host::worktree_root(&self.state_dir, project).map(Some)
+    }
+
+    fn dispatch_branch_prefix(&self) -> Result<Option<String>, String> {
+        let settings = crate::agents::DispatchSettings::load(&self.state_dir)
+            .map_err(|error| error.to_string())?;
+        settings
+            .branch_prefix()
+            .map(|prefix| prefix.map(str::to_string))
     }
 
     fn launches_as_command(&self) -> bool {
@@ -4197,7 +4210,8 @@ pub fn preview_prompt(
                     .worktree_root(project)
                     .map_err(DispatchError::AgentConfig)?;
                 let names = DispatchNames::new(number, &task.title);
-                let branch = free_branch(host, project, &names, number)?;
+                let prefix = branch_prefix(host, settings)?;
+                let branch = free_branch(host, project, &prefix, &names, number)?;
                 let worktree = root
                     .and_then(|root| worktree_path(&root, project, &branch))
                     .map(|path| path.to_string_lossy().into_owned())
@@ -4397,7 +4411,8 @@ pub fn launch_with_host(
         warning = choice.warning;
         host.worktree_root(project)
             .map_err(DispatchError::AgentConfig)?;
-        let requested_branch = free_branch(host, project, &names, number)?;
+        let prefix = branch_prefix(host, settings.as_ref())?;
+        let requested_branch = free_branch(host, project, &prefix, &names, number)?;
         let created = host
             .create_worktree(
                 project,
@@ -4854,9 +4869,10 @@ impl DispatchNames {
         Self { slug, label }
     }
 
-    /// `tsk/t<n>-<slug>`, or `tsk/t<n>` for an empty slug; `attempt` above 1 appends `-<attempt>`.
-    pub fn branch(&self, number: u64, attempt: u32) -> String {
-        let mut branch = format!("tsk/t{number}");
+    /// `<prefix>/t<n>-<slug>`, or `<prefix>/t<n>` for an empty slug; `attempt` above 1 appends
+    /// `-<attempt>`.
+    pub fn branch(&self, prefix: &str, number: u64, attempt: u32) -> String {
+        let mut branch = format!("{prefix}/t{number}");
         if !self.slug.is_empty() {
             branch.push('-');
             branch.push_str(&self.slug);
@@ -4980,16 +4996,38 @@ fn system_branch_taken(project: &Path, branch: &str, root: Option<&Path>) -> Res
 /// Collision suffixes tried before dispatch gives up (`-2` through this).
 const MAX_NAME_ATTEMPT: u32 = 99;
 
-/// First of `tsk/t<n>-<slug>`, `…-2`, `…-3` that no branch or worktree holds. A failed check
-/// refuses: guessing could hand the agent someone else's branch.
+/// The prefix a first dispatch names its branch with: the project's `branch_prefix`, else
+/// `[dispatch] branch_prefix`, else `tsk`. A bad value refuses the dispatch only where it
+/// would be used: a project's own prefix wins over a bad global one.
+fn branch_prefix(
+    host: &impl DispatchHost,
+    settings: Option<&crate::agents::ProjectSettings>,
+) -> Result<String, DispatchError> {
+    let project = settings
+        .map(crate::agents::ProjectSettings::branch_prefix)
+        .transpose()
+        .map_err(DispatchError::AgentConfig)?
+        .flatten();
+    if let Some(prefix) = project {
+        return Ok(prefix.to_string());
+    }
+    Ok(host
+        .dispatch_branch_prefix()
+        .map_err(DispatchError::AgentConfig)?
+        .unwrap_or_else(|| crate::agents::DEFAULT_BRANCH_PREFIX.to_string()))
+}
+
+/// First of `<prefix>/t<n>-<slug>`, `…-2`, `…-3` that no branch or worktree holds. A failed
+/// check refuses: guessing could hand the agent someone else's branch.
 fn free_branch(
     host: &mut impl DispatchHost,
     project: &Path,
+    prefix: &str,
     names: &DispatchNames,
     number: u64,
 ) -> Result<String, DispatchError> {
     for attempt in 1..=MAX_NAME_ATTEMPT {
-        let branch = names.branch(number, attempt);
+        let branch = names.branch(prefix, number, attempt);
         if !host
             .branch_taken(project, &branch)
             .map_err(DispatchError::Host)?
@@ -4999,7 +5037,7 @@ fn free_branch(
     }
     Err(DispatchError::Host(format!(
         "no free branch name: {} through -{MAX_NAME_ATTEMPT} exist",
-        names.branch(number, 1)
+        names.branch(prefix, number, 1)
     )))
 }
 
@@ -5061,6 +5099,8 @@ mod tests {
         fail_taken: Option<String>,
         /// What `worktree_root` refuses with: a bad `[dispatch] worktrees`.
         fail_root: Option<String>,
+        /// What `dispatch_branch_prefix` answers: `[dispatch] branch_prefix`, or its refusal.
+        global_prefix: Option<Result<String, String>>,
         created_labels: Vec<String>,
         fail_create: Option<String>,
         fail_run: Option<String>,
@@ -5216,6 +5256,10 @@ mod tests {
                 Some(error) => Err(error.clone()),
                 None => Ok(Some(PathBuf::from("/worktrees"))),
             }
+        }
+
+        fn dispatch_branch_prefix(&self) -> Result<Option<String>, String> {
+            self.global_prefix.clone().transpose()
         }
 
         fn branch_taken(&mut self, _: &Path, branch: &str) -> Result<bool, String> {
@@ -10930,7 +10974,7 @@ mod tests {
 
     fn names(title: &str) -> (String, String) {
         let names = DispatchNames::new(7, title);
-        (names.branch(7, 1), names.label)
+        (names.branch("tsk", 7, 1), names.label)
     }
 
     #[test]
@@ -11038,7 +11082,7 @@ mod tests {
             names(&long),
             ("tsk/t7".into(), format!("T7 {}", long.trim()))
         );
-        assert_eq!(DispatchNames::new(7, "!!!").branch(7, 2), "tsk/t7-2");
+        assert_eq!(DispatchNames::new(7, "!!!").branch("tsk", 7, 2), "tsk/t7-2");
     }
 
     #[test]
@@ -11136,7 +11180,7 @@ mod tests {
         );
 
         // Unicode slugs stay valid branch names.
-        let branch = DispatchNames::new(5, "Café 東京 İstanbul — ünïcode").branch(5, 2);
+        let branch = DispatchNames::new(5, "Café 東京 İstanbul — ünïcode").branch("tsk", 5, 2);
         git(&["check-ref-format", "--branch", &branch]);
         git(&["branch", &branch]);
         assert_eq!(system_branch_taken(&project, &branch, None), Ok(true));
@@ -11278,6 +11322,125 @@ mod tests {
         assert_eq!(host.creates, 0);
         assert!(state.get(id).expect("task").dispatch.is_none());
         fs::remove_dir_all(path).expect("cleanup");
+    }
+
+    /// Profiles whose `/repos/app` project table holds `project_rows`.
+    fn prefixed_profiles(project_rows: &str) -> AgentProfiles {
+        AgentProfiles::parse_for_tests_loaded(&format!(
+            "[project.\"/repos/app\"]\n{project_rows}\n\
+             [agent.implementer]\ncommand = [\"runner\", \"{{branch}}\", \"{{prompt}}\"]\n"
+        ))
+    }
+
+    #[test]
+    fn a_dispatch_names_its_branch_with_the_project_prefix_then_the_global_then_tsk() {
+        let dispatched = |profiles: &AgentProfiles, global: Option<&str>, taken: Vec<String>| {
+            let (mut state, id) = task();
+            let mut host = FakeHost {
+                git: true,
+                taken,
+                // `!` marks a bad global prefix, refused if it is ever read.
+                global_prefix: global.map(|prefix| match prefix.strip_prefix('!') {
+                    Some(bad) => Err(format!("config.toml: [dispatch] branch_prefix {bad:?}")),
+                    None => Ok(prefix.to_string()),
+                }),
+                ..FakeHost::default()
+            };
+            run_with_host(&mut state, id, profiles, false, HostKind::Herdr, &mut host)
+                .expect("dispatch")
+                .record
+                .branch
+        };
+        let project = prefixed_profiles("branch_prefix = \"sam/work\"");
+        let plain = prefixed_profiles("");
+        assert_eq!(
+            dispatched(&project, Some("team"), Vec::new()),
+            "sam/work/t1-ship-dispatch"
+        );
+        // A project's own prefix never reads a bad global one.
+        assert_eq!(
+            dispatched(&project, Some("!-bad"), Vec::new()),
+            "sam/work/t1-ship-dispatch"
+        );
+        assert_eq!(
+            dispatched(&plain, Some("team"), Vec::new()),
+            "team/t1-ship-dispatch"
+        );
+        assert_eq!(dispatched(&plain, None, Vec::new()), "tsk/t1-ship-dispatch");
+        // The collision suffix works on the new prefix, and an old `tsk/` branch is no collision.
+        assert_eq!(
+            dispatched(
+                &plain,
+                Some("team"),
+                vec![
+                    "team/t1-ship-dispatch".into(),
+                    "tsk/t1-ship-dispatch-2".into()
+                ]
+            ),
+            "team/t1-ship-dispatch-2"
+        );
+    }
+
+    #[test]
+    fn a_prompt_preview_derives_the_worktree_directory_from_the_prefixed_branch() {
+        let profiles = prefixed_profiles("branch_prefix = \"sam\"");
+        let (state, id) = task();
+        let mut host = FakeHost {
+            git: true,
+            ..FakeHost::default()
+        };
+        let preview = preview_prompt(&state, id, &profiles, None, &mut host).expect("preview");
+        let prompt = preview.argv.last().expect("prompt");
+        assert!(
+            prompt.contains(
+                "in worktree /worktrees/app/sam-t1-ship-dispatch on branch sam/t1-ship-dispatch,"
+            ),
+            "{prompt}"
+        );
+    }
+
+    #[test]
+    fn a_bad_branch_prefix_refuses_as_agent_config_before_anything_is_created() {
+        let refused = |error: &DispatchError, expected: &str| matches!(error, DispatchError::AgentConfig(reason) if reason.starts_with(expected));
+        // A bad project prefix still loads the profiles: only the dispatch refuses.
+        let bad_project = prefixed_profiles("branch_prefix = \"-sam\"");
+        let project_refusal = "config.toml: [project.\"/repos/app\"] branch_prefix \"-sam\"";
+        let global_refusal = "config.toml: [dispatch] branch_prefix must not be empty";
+        let plain = prefixed_profiles("");
+        for (profiles, global, expected) in [
+            (&bad_project, None, project_refusal),
+            (
+                &plain,
+                Some(Err(global_refusal.to_string())),
+                global_refusal,
+            ),
+        ] {
+            let (mut state, id) = task();
+            let before = serde_json::to_string(&state).expect("state");
+            let host = || FakeHost {
+                git: true,
+                global_prefix: global.clone(),
+                ..FakeHost::default()
+            };
+            let mut dispatch_host = host();
+            let error = run_with_host(
+                &mut state,
+                id,
+                profiles,
+                false,
+                HostKind::Herdr,
+                &mut dispatch_host,
+            )
+            .expect_err("bad prefix refuses");
+            assert!(refused(&error, expected), "{error}");
+            assert_eq!(dispatch_host.creates, 0);
+            assert!(dispatch_host.runs.is_empty() && dispatch_host.launchers.is_empty());
+            assert_eq!(serde_json::to_string(&state).expect("state"), before);
+
+            let error = preview_prompt(&state, id, profiles, None, &mut host())
+                .expect_err("bad prefix refuses the preview");
+            assert!(refused(&error, expected), "{error}");
+        }
     }
 
     #[test]

@@ -12,6 +12,10 @@ first added in the same Unreleased section is not an entry: edit that entry inst
 
 ## Unreleased
 
+### Added
+
+- `branch_prefix` in `[dispatch]` or a project's table in `config.toml` replaces `tsk` in new dispatch branch names ([branch prefix](https://gettsk.sh/docs/storage/#branch-prefix)).
+
 ## v0.15.0
 
 ### Breaking

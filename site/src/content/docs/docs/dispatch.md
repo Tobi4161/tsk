@@ -92,8 +92,9 @@ Names come from the task number and title. For T12 `Fix login timeout`, assigned
 | Herdr workspace | `T12 Fix login timeout` |
 | Herdr agent, Rex tab and its pane | `t12-claude` |
 
+- The branch starts with `tsk/` unless a [branch prefix](/docs/storage/#branch-prefix) sets another, such as `sam/t12-fix-login-timeout`.
 - The title part keeps whole words within 30 characters.
-- The worktree directory keeps only ASCII letters and digits.
+- The worktree directory keeps only ASCII letters and digits from the branch, such as `sam-t12-fix-login-timeout`.
 - When a name is taken, tsk appends `-2`, `-3`, and so on.
 - The worktree goes under `<worktrees>/<repo>/`, such as `~/.tsk/worktrees/app/tsk-t12-fix-login-timeout`. `<worktrees>` is the `worktrees` folder in the [state directory](/docs/storage/#location), or the folder set in [`[dispatch]`](/docs/storage/#worktree-location).
 - tsk names the agent once Herdr detects it, so `herdr agent get t12-claude` finds it. If Herdr detects no agent within 30 seconds, it stays unnamed.
