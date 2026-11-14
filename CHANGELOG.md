@@ -12,11 +12,7 @@ first added in the same Unreleased section is not an entry: edit that entry inst
 
 ## Unreleased
 
-### Added
-
-- `branch_prefix` in `[dispatch]` or a project's table in `config.toml` replaces `tsk` in new dispatch branch names ([branch prefix](https://gettsk.sh/docs/storage/#branch-prefix)).
-
-## v0.15.0
+## v0.16.0
 
 ### Breaking
 
@@ -30,6 +26,7 @@ first added in the same Unreleased section is not an entry: edit that entry inst
 - A task dispatched in Herdr or Rex starts plainly in the other; relaunch, reply delivery, and cleanup there refuse with `other-host`.
 - `[dispatch] worktrees` in `config.toml` sets where dispatch puts new worktrees ([worktree location](https://gettsk.sh/docs/storage/#worktree-location)).
 - Project titles: `ctrl+e` on a project row or `tsk project title` names a project; `-p` accepts the title ([project titles](https://gettsk.sh/docs/board/#project-titles)). Thanks @s3rgiosan (#249).
+- `branch_prefix` in `[dispatch]` or a project's table in `config.toml` replaces `tsk` in new dispatch branch names ([branch prefix](https://gettsk.sh/docs/storage/#branch-prefix)).
 
 ### Changed
 
