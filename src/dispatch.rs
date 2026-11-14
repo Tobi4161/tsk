@@ -1434,9 +1434,11 @@ impl DispatchHost for SystemDispatchHost {
     }
 
     fn dispatch_branch_prefix(&self) -> Result<Option<String>, String> {
-        crate::agents::DispatchSettings::load(&self.state_dir)
-            .map(|settings| settings.branch_prefix)
-            .map_err(|error| error.to_string())
+        let settings = crate::agents::DispatchSettings::load(&self.state_dir)
+            .map_err(|error| error.to_string())?;
+        settings
+            .branch_prefix()
+            .map(|prefix| prefix.map(str::to_string))
     }
 
     fn launches_as_command(&self) -> bool {
@@ -4995,22 +4997,23 @@ fn system_branch_taken(project: &Path, branch: &str, root: Option<&Path>) -> Res
 const MAX_NAME_ATTEMPT: u32 = 99;
 
 /// The prefix a first dispatch names its branch with: the project's `branch_prefix`, else
-/// `[dispatch] branch_prefix`, else `tsk`. A bad value of either refuses the dispatch.
+/// `[dispatch] branch_prefix`, else `tsk`. A bad value refuses the dispatch only where it
+/// would be used: a project's own prefix wins over a bad global one.
 fn branch_prefix(
     host: &impl DispatchHost,
     settings: Option<&crate::agents::ProjectSettings>,
 ) -> Result<String, DispatchError> {
-    let global = host
-        .dispatch_branch_prefix()
-        .map_err(DispatchError::AgentConfig)?;
     let project = settings
         .map(crate::agents::ProjectSettings::branch_prefix)
         .transpose()
         .map_err(DispatchError::AgentConfig)?
         .flatten();
-    Ok(project
-        .map(str::to_string)
-        .or(global)
+    if let Some(prefix) = project {
+        return Ok(prefix.to_string());
+    }
+    Ok(host
+        .dispatch_branch_prefix()
+        .map_err(DispatchError::AgentConfig)?
         .unwrap_or_else(|| crate::agents::DEFAULT_BRANCH_PREFIX.to_string()))
 }
 
@@ -11336,7 +11339,11 @@ mod tests {
             let mut host = FakeHost {
                 git: true,
                 taken,
-                global_prefix: global.map(|prefix| Ok(prefix.to_string())),
+                // `!` marks a bad global prefix, refused if it is ever read.
+                global_prefix: global.map(|prefix| match prefix.strip_prefix('!') {
+                    Some(bad) => Err(format!("config.toml: [dispatch] branch_prefix {bad:?}")),
+                    None => Ok(prefix.to_string()),
+                }),
                 ..FakeHost::default()
             };
             run_with_host(&mut state, id, profiles, false, HostKind::Herdr, &mut host)
@@ -11348,6 +11355,11 @@ mod tests {
         let plain = prefixed_profiles("");
         assert_eq!(
             dispatched(&project, Some("team"), Vec::new()),
+            "sam/work/t1-ship-dispatch"
+        );
+        // A project's own prefix never reads a bad global one.
+        assert_eq!(
+            dispatched(&project, Some("!-bad"), Vec::new()),
             "sam/work/t1-ship-dispatch"
         );
         assert_eq!(

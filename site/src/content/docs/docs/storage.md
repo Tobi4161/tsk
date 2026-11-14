@@ -219,9 +219,9 @@ An unknown key or a bad value in one table never blocks the others. A file that 
 | --- | --- |
 | Unknown top-level key or table | Ignored, so a file written for a newer tsk still loads |
 | Unknown key inside `[agent.<name>]`, `[project."<path>"]`, `[dispatch]`, `[merge]`, `[after]`, `[board]`, or `[[backup]]` | That table is an error |
-| Broken profile or `[project."<path>"]` | The board opens without profiles and shows the error on its status row. `tsk add` and `tsk edit` with an assignee exit 2 without saving |
+| Broken profile or `[project."<path>"]`, other than a bad `branch_prefix` | The board opens without profiles and shows the error on its status row. `tsk add` and `tsk edit` with an assignee exit 2 without saving |
 | Broken `[dispatch]`, or a `worktrees` folder that puts worktrees inside the project | Only dispatch and `--show-prompt` refuse, with `agent-config`. Cleanup still works |
-| Bad `branch_prefix` in `[project."<path>"]` | Only dispatch and `--show-prompt` for that repository refuse, with `agent-config`. Profiles still load |
+| Bad `branch_prefix` in `[dispatch]` or `[project."<path>"]` | Only a new dispatch that would use it, and its `--show-prompt`, refuse with `agent-config`. Everything else still works |
 | Broken `[merge]` | Only merging refuses: the cleanup card says why, and the CLI refuses with `merge-config` |
 | Broken `[after]` | A done starts nothing until it is fixed. The board shows the error on its status row |
 | Broken `[board]` | The board opens at the default layout and shows the error on its status row. A bad `me` leaves the layout alone and names you `you` |
