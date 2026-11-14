@@ -175,9 +175,12 @@ pub const STARTER_CONFIG: &str = r##"# tsk configuration
 #                  `tsk edit T12 --on you`.
 #   prompt_append  added after the prompt, before the profile's own
 #                  `prompt_append`
+#   branch_prefix  the first part of each new dispatch branch,
+#                  `<prefix>/t12-<title>`; it wins over `[dispatch]`
 # [project."~/code/my-app"]
 # review_on = "coordinator"
 # prompt_append = "Run `make check` before review."
+# branch_prefix = "sam"
 
 # =============================================================================
 # Global config
@@ -190,12 +193,16 @@ pub const STARTER_CONFIG: &str = r##"# tsk configuration
 # [merge]
 # method = "merge"
 
-# Where dispatch puts each new worktree: `<worktrees>/<repo>/<directory>`.
-#   worktrees  an absolute path or one starting with `~`, outside every
-#              project; the default is the `worktrees` folder beside this
-#              file
+# Where dispatch puts each new worktree, `<worktrees>/<repo>/<directory>`,
+# and what each new branch is called, `<branch_prefix>/t12-<title>`.
+#   worktrees      an absolute path or one starting with `~`, outside every
+#                  project; the default is the `worktrees` folder beside
+#                  this file
+#   branch_prefix  "tsk" (the default), or `/`-separated parts of letters,
+#                  digits, `.`, `_`, and `-`, none starting with `.` or `-`
 # [dispatch]
 # worktrees = "~/code/worktrees"
+# branch_prefix = "tsk"
 
 # When the last task a ready task waits on is done, the ready task starts on
 # its own (an assigned one dispatches). `start = false` leaves it ready
@@ -413,6 +420,12 @@ impl AgentProfiles {
         Self::parse(content).is_ok()
     }
 
+    /// `content` parsed as profiles, which must be valid (tests of other modules).
+    #[cfg(test)]
+    pub(crate) fn parse_for_tests_loaded(content: &str) -> Self {
+        Self::parse(content).expect("profiles parse")
+    }
+
     pub fn get(&self, name: &str) -> Option<&AgentProfile> {
         self.profiles.get(name)
     }
@@ -544,12 +557,49 @@ pub struct ProjectSettings {
     pub review_on: Option<String>,
     /// Text added after the prompt, before the profile's own `prompt_append`.
     pub prompt_append: Option<String>,
+    /// `branch_prefix`, checked only when a dispatch needs it: a bad value refuses that
+    /// dispatch (the `Err` message) and nothing else.
+    pub branch_prefix: Option<Result<String, String>>,
 }
 
 impl ProjectSettings {
     /// The `{on}` value: the configured name, or `you`.
     pub fn on(&self) -> &str {
         self.review_on.as_deref().unwrap_or(crate::domain::OWNER)
+    }
+
+    /// The project's `branch_prefix`, if set; a bad one is its `config.toml` refusal.
+    pub fn branch_prefix(&self) -> Result<Option<&str>, String> {
+        match &self.branch_prefix {
+            None => Ok(None),
+            Some(Ok(prefix)) => Ok(Some(prefix)),
+            Some(Err(message)) => Err(message.clone()),
+        }
+    }
+}
+
+/// The first part of a dispatch branch when `config.toml` sets none.
+pub const DEFAULT_BRANCH_PREFIX: &str = "tsk";
+
+/// A `branch_prefix` is one or more `/`-separated segments of ASCII letters, digits, `.`, `_`,
+/// and `-`, no segment starting with `.` or `-`. The refusal names the value.
+fn check_branch_prefix(value: &str) -> Result<(), String> {
+    if value.is_empty() {
+        return Err("branch_prefix must not be empty".into());
+    }
+    let segment_ok = |segment: &str| {
+        !segment.is_empty()
+            && !segment.starts_with(['.', '-'])
+            && segment
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+    };
+    if value.split('/').all(segment_ok) {
+        Ok(())
+    } else {
+        Err(format!(
+            "branch_prefix {value:?} must be `/`-separated parts of letters, digits, `.`, `_`, and `-`, none empty or starting with `.` or `-`"
+        ))
     }
 }
 
@@ -1042,11 +1092,14 @@ impl BoardDefaults {
     }
 }
 
-/// Where dispatch checks out new worktrees: `[dispatch] worktrees` in `config.toml`.
+/// Where dispatch checks out new worktrees and how it names branches: `[dispatch]` in
+/// `config.toml`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct DispatchSettings {
     /// The worktree root, `~` expanded and absolute. `None`: `<state dir>/worktrees`.
     pub worktrees: Option<PathBuf>,
+    /// `branch_prefix`, validated. `None`: a project's, else [`DEFAULT_BRANCH_PREFIX`].
+    pub branch_prefix: Option<String>,
 }
 
 impl DispatchSettings {
@@ -1081,7 +1134,7 @@ impl DispatchSettings {
         if let Some(key) = table
             .iter()
             .map(|(key, _)| key)
-            .find(|key| *key != "worktrees")
+            .find(|key| !matches!(*key, "worktrees" | "branch_prefix"))
         {
             return Err(invalid(format!("unknown key {key:?}")));
         }
@@ -1098,7 +1151,18 @@ impl DispatchSettings {
                 Some(expanded)
             }
         };
-        Ok(Self { worktrees })
+        let branch_prefix = match table.get("branch_prefix").map(|item| item.as_str()) {
+            None => None,
+            Some(None) => return Err(invalid("branch_prefix must be a string".into())),
+            Some(Some(prefix)) => {
+                check_branch_prefix(prefix).map_err(invalid)?;
+                Some(prefix.to_string())
+            }
+        };
+        Ok(Self {
+            worktrees,
+            branch_prefix,
+        })
     }
 }
 
@@ -1255,7 +1319,7 @@ fn parse_projects(
             if let Some(key) = table
                 .iter()
                 .map(|(key, _)| key)
-                .find(|key| !matches!(*key, "review_on" | "prompt_append"))
+                .find(|key| !matches!(*key, "review_on" | "prompt_append" | "branch_prefix"))
             {
                 return Err(refuse(&format!("unknown key {key:?}")));
             }
@@ -1273,11 +1337,22 @@ fn parse_projects(
                 .map(|value| parse_review_on(&value).map_err(|message| refuse(&message)))
                 .transpose()?
                 .flatten();
+            // Kept unchecked: a bad prefix refuses only dispatch, never the profiles it sits beside.
+            let branch_prefix = table.get("branch_prefix").map(|item| {
+                let refuse = |message: String| format!("config.toml: [project.{path:?}] {message}");
+                match item.as_str() {
+                    None => Err(refuse("branch_prefix must be a string".into())),
+                    Some(prefix) => check_branch_prefix(prefix)
+                        .map(|()| prefix.to_string())
+                        .map_err(refuse),
+                }
+            });
             Ok((
                 path.to_string(),
                 ProjectSettings {
                     review_on,
                     prompt_append: string("prompt_append")?,
+                    branch_prefix,
                 },
             ))
         })
@@ -1729,13 +1804,86 @@ command = ["pi"]
     }
 
     #[test]
+    fn dispatch_branch_prefix_reads_a_valid_value_and_refuses_a_bad_one() {
+        assert_eq!(
+            DispatchSettings::parse("[dispatch]\n")
+                .unwrap()
+                .branch_prefix,
+            None
+        );
+        for good in ["twolm", "sam/work", "a.b_c-d/E9", "_x"] {
+            let settings =
+                DispatchSettings::parse(&format!("[dispatch]\nbranch_prefix = {good:?}\n"))
+                    .unwrap_or_else(|error| panic!("{good}: {error}"));
+            assert_eq!(settings.branch_prefix.as_deref(), Some(good));
+        }
+        for (bad, reason) in [
+            ("\"\"", "branch_prefix must not be empty"),
+            ("1", "branch_prefix must be a string"),
+            ("\"-x\"", "branch_prefix \"-x\" must be"),
+            ("\".x\"", "branch_prefix \".x\" must be"),
+            ("\"a/.x\"", "branch_prefix \"a/.x\" must be"),
+            ("\"a//b\"", "branch_prefix \"a//b\" must be"),
+            ("\"a/\"", "branch_prefix \"a/\" must be"),
+            ("\"/a\"", "branch_prefix \"/a\" must be"),
+            ("\"a b\"", "branch_prefix \"a b\" must be"),
+            ("\"café\"", "branch_prefix \"café\" must be"),
+        ] {
+            let error = DispatchSettings::parse(&format!("[dispatch]\nbranch_prefix = {bad}\n"))
+                .expect_err(bad)
+                .to_string();
+            assert!(
+                error.starts_with(&format!("config.toml: [dispatch] {reason}")),
+                "{bad}: {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_bad_project_branch_prefix_keeps_the_profiles_loading_and_names_the_key() {
+        let profiles = AgentProfiles::parse(
+            "[project.\"~/code/app\"]\nbranch_prefix = \"a b\"\n\
+             [project.\"/repos/b\"]\nbranch_prefix = 7\n\
+             [project.\"/repos/c\"]\nbranch_prefix = \"sam\"\n\
+             [project.\"/repos/d\"]\nreview_on = \"x\"\n\
+             [agent.x]\ncommand = [\"x\"]\n",
+        )
+        .expect("a bad branch_prefix never blocks the profiles");
+        let prefix = |path: &str| {
+            profiles
+                .project(Path::new(&crate::scope::expand_home(path)))
+                .expect("project")
+                .branch_prefix()
+                .map(|prefix| prefix.map(str::to_string))
+        };
+        let error = prefix("~/code/app").expect_err("bad prefix");
+        assert!(
+            error
+                .starts_with("config.toml: [project.\"~/code/app\"] branch_prefix \"a b\" must be"),
+            "{error}"
+        );
+        assert_eq!(
+            prefix("/repos/b"),
+            Err("config.toml: [project.\"/repos/b\"] branch_prefix must be a string".into())
+        );
+        assert_eq!(prefix("/repos/c"), Ok(Some("sam".into())));
+        assert_eq!(prefix("/repos/d"), Ok(None));
+    }
+
+    #[test]
     fn starter_dispatch_example_parses_once_uncommented() {
         let uncommented = STARTER_CONFIG
             .replace("# [dispatch]\n", "[dispatch]\n")
-            .replace("# worktrees = ", "worktrees = ");
+            .replace("# worktrees = ", "worktrees = ")
+            .replace("# branch_prefix = \"tsk\"", "branch_prefix = \"tsk\"");
         assert!(uncommented.contains("[dispatch]\nworktrees = "));
+        assert!(uncommented.contains("\nbranch_prefix = \"tsk\"\n"));
         if crate::scope::expand_home("~") != "~" {
             let settings = DispatchSettings::parse(&uncommented).expect("example parses");
+            assert_eq!(
+                settings.branch_prefix.as_deref(),
+                Some(DEFAULT_BRANCH_PREFIX)
+            );
             assert!(settings
                 .worktrees
                 .is_some_and(|path| path.ends_with(Path::new("code").join("worktrees"))));
@@ -2539,6 +2687,7 @@ then set review again.
         let project = profiles.project(Path::new(&home)).expect("project example");
         assert_eq!(project.on(), "coordinator");
         assert!(project.prompt_append.is_some());
+        assert_eq!(project.branch_prefix(), Ok(Some("sam")));
         assert_eq!(
             profiles.get("claude-win").expect("windows example").command,
             [r"C:\Users\you\.local\bin\claude.exe"]

@@ -115,12 +115,14 @@ A `[project."<path>"]` table holds dispatch settings for one repository. It live
 [project."~/code/my-app"]
 review_on = "coordinator"
 prompt_append = "Run `make check` before review."
+branch_prefix = "sam"
 ```
 
 | Key | Value |
 | --- | --- |
 | `review_on` | Who agents hand review to, the `{on}` placeholder. `you` (the default), an agent profile's name for that agent, or any other name, as [`--on`](/docs/cli/#status) reads it |
 | `prompt_append` | Text added after the prompt, before the profile's own `prompt_append` |
+| `branch_prefix` | The [branch prefix](#branch-prefix) for this repository's dispatches. It wins over the one in `[dispatch]` |
 
 - The key is the repository's path. `~` is your home folder, and a trailing slash or a symlinked spelling of the same folder still matches.
 - When two keys name the same repository, the first one in the file wins.
@@ -149,6 +151,20 @@ worktrees = "~/code/worktrees"   # the default is worktrees in the state directo
 - Worktrees must land outside the task's project, so the project folder and its parent folder are refused.
 - A task already dispatched keeps its worktree where it is. Cleanup removes it from there.
 - A relaunch after cleanup recreates the worktree under the current setting.
+
+### Branch prefix
+
+`branch_prefix` in `[dispatch]` sets the first part of every new [dispatch branch](/docs/dispatch/#names). A project's own `branch_prefix` wins over it.
+
+```toml
+[dispatch]
+branch_prefix = "sam"   # the default is tsk
+```
+
+- T12 `Fix login timeout` then dispatches on `sam/t12-fix-login-timeout`, in worktree `sam-t12-fix-login-timeout`.
+- A prefix is one or more parts separated by `/`, such as `sam/work`. Parts use ASCII letters, digits, `.`, `_`, and `-`, and never start with `.` or `-`.
+- A task already dispatched keeps its branch. Relaunch, cleanup, and merge use the recorded one.
+- A local branch named like the prefix, such as `sam`, makes Git refuse the dispatch branch.
 
 ### Merge method
 
@@ -205,6 +221,7 @@ An unknown key or a bad value in one table never blocks the others. A file that 
 | Unknown key inside `[agent.<name>]`, `[project."<path>"]`, `[dispatch]`, `[merge]`, `[after]`, `[board]`, or `[[backup]]` | That table is an error |
 | Broken profile or `[project."<path>"]` | The board opens without profiles and shows the error on its status row. `tsk add` and `tsk edit` with an assignee exit 2 without saving |
 | Broken `[dispatch]`, or a `worktrees` folder that puts worktrees inside the project | Only dispatch and `--show-prompt` refuse, with `agent-config`. Cleanup still works |
+| Bad `branch_prefix` in `[project."<path>"]` | Only dispatch and `--show-prompt` for that repository refuse, with `agent-config`. Profiles still load |
 | Broken `[merge]` | Only merging refuses: the cleanup card says why, and the CLI refuses with `merge-config` |
 | Broken `[after]` | A done starts nothing until it is fixed. The board shows the error on its status row |
 | Broken `[board]` | The board opens at the default layout and shows the error on its status row. A bad `me` leaves the layout alone and names you `you` |
