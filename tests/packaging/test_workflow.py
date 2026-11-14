@@ -139,10 +139,19 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("TSK_TEST_BINARY: ${{ github.workspace }}/target/release/tsk", ci)
         self.assertLess(ci.index("name: Verify"), ci.index("name: Packaging contract tests"))
 
+    def test_release_builds_exactly_the_targets_it_assembles(self):
+        source = WORKFLOW.read_text()
+        built = re.findall(r"^            target: (\S+)$", source, re.M)
+        assembled = re.findall(r"release\.py assemble \"\$TAG\" dist-release --targets (\S+)$", source, re.M)
+        self.assertEqual(len(assembled), 1)
+        self.assertEqual(built, assembled[0].split(","))
+        # A disabled target stays in the file, ready to uncomment.
+        self.assertRegex(source, r"# - os: windows-2025\n\s+#   target: x86_64-pc-windows-msvc")
+        self.assertRegex(source, r"# - os: windows-11-arm\n\s+#   target: aarch64-pc-windows-msvc")
+        self.assertIn("if: hashFiles('dist-release/tsk.rb') != ''", source)
+
     def test_release_builds_and_packages_windows_natively(self):
         source = WORKFLOW.read_text()
-        self.assertRegex(source, r"- os: windows-2025\n\s+target: x86_64-pc-windows-msvc")
-        self.assertRegex(source, r"- os: windows-11-arm\n\s+target: aarch64-pc-windows-msvc")
         self.assertIn('target/${{ matrix.target }}/release/tsk${{ matrix.exe_suffix }}', source)
         self.assertIn("os.path.abspath(sys.argv[1])", source)
         self.assertIn('TSK_TEST_BINARY="$test_binary"', source)

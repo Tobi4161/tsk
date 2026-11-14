@@ -31,6 +31,31 @@ class ReleaseTests(unittest.TestCase):
         for target in release.RELEASE_TARGETS:
             release.package("v1.2.3", target, self.binary, self.out)
 
+    def test_assemble_ships_a_target_subset_without_the_formula(self):
+        target = "x86_64-unknown-linux-musl"
+        release.package("v1.2.3", target, self.binary, self.out)
+        release.assemble("v1.2.3", self.out, release.release_targets(target))
+        self.assertFalse((self.out / "tsk.rb").exists())
+        sums = (self.out / "SHA256SUMS").read_text(encoding="utf-8").splitlines()
+        self.assertEqual([line.split("  ")[1] for line in sums], [f"tsk-v1.2.3-{target}.tar.gz", "install.sh", "install.ps1"])
+
+    def test_assemble_refuses_a_subset_missing_one_of_its_archives(self):
+        release.package("v1.2.3", "x86_64-unknown-linux-musl", self.binary, self.out)
+        targets = release.release_targets("x86_64-unknown-linux-musl,x86_64-pc-windows-msvc")
+        with self.assertRaisesRegex(ValueError, "all 2 platform archives are required"):
+            release.assemble("v1.2.3", self.out, targets)
+        self.assertFalse((self.out / "SHA256SUMS").exists())
+
+    def test_release_targets_keeps_release_order_and_refuses_unknown_names(self):
+        self.assertEqual(release.release_targets(None), release.RELEASE_TARGETS)
+        self.assertEqual(
+            release.release_targets("x86_64-pc-windows-msvc, aarch64-apple-darwin"),
+            ("aarch64-apple-darwin", "x86_64-pc-windows-msvc"),
+        )
+        for spec in ["", ",", "x86_64-linux", "aarch64-apple-darwin,nope"]:
+            with self.assertRaises(ValueError, msg=spec):
+                release.release_targets(spec)
+
     def test_assemble_refuses_every_existing_output_without_touching_it(self):
         self.package_all()
         victim = self.root / "victim"

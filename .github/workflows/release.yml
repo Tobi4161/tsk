@@ -42,26 +42,29 @@ jobs:
     timeout-minutes: 30
     strategy:
       fail-fast: false
+      # The fork ships x86_64 Linux only. To ship another target, uncomment its entry and
+      # add it to `--targets` in the draft job's assemble step. All four macOS and Linux
+      # targets together bring back the tap formula.
       matrix:
         include:
-          - os: macos-15
-            target: aarch64-apple-darwin
-            exe_suffix: ""
-          - os: macos-15-intel
-            target: x86_64-apple-darwin
-            exe_suffix: ""
-          - os: ubuntu-24.04-arm
-            target: aarch64-unknown-linux-musl
-            exe_suffix: ""
+          # - os: macos-15
+          #   target: aarch64-apple-darwin
+          #   exe_suffix: ""
+          # - os: macos-15-intel
+          #   target: x86_64-apple-darwin
+          #   exe_suffix: ""
+          # - os: ubuntu-24.04-arm
+          #   target: aarch64-unknown-linux-musl
+          #   exe_suffix: ""
           - os: ubuntu-24.04
             target: x86_64-unknown-linux-musl
             exe_suffix: ""
-          - os: windows-2025
-            target: x86_64-pc-windows-msvc
-            exe_suffix: .exe
-          - os: windows-11-arm
-            target: aarch64-pc-windows-msvc
-            exe_suffix: .exe
+          # - os: windows-2025
+          #   target: x86_64-pc-windows-msvc
+          #   exe_suffix: .exe
+          # - os: windows-11-arm
+          #   target: aarch64-pc-windows-msvc
+          #   exe_suffix: .exe
     env:
       TAG: ${{ inputs.tag }}
       TARGET: ${{ matrix.target }}
@@ -132,8 +135,9 @@ jobs:
           path: dist-release
           merge-multiple: true
       - name: Generate checksums and version-pinned tap formula
-        run: python3 scripts/release.py assemble "$TAG" dist-release
+        run: python3 scripts/release.py assemble "$TAG" dist-release --targets x86_64-unknown-linux-musl
       - name: Validate generated Ruby
+        if: hashFiles('dist-release/tsk.rb') != ''
         run: ruby -c dist-release/tsk.rb
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
